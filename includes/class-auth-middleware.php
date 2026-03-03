@@ -112,6 +112,11 @@ class AuthMiddleware {
         // Map API key identity to WP user so permission_callback remains authoritative.
         wp_set_current_user($wp_user_id);
 
+        // Expose current authenticated client context for same-request integrations
+        // (e.g. MCP tool exposure filtering by allowlist/denylist).
+        $GLOBALS['webo_hmac_auth_current_client'] = $client;
+        do_action('webo_hmac_authenticated_client', $client, $path);
+
         $this->key_manager->update_last_used($client['key_id']);
 
         return true;

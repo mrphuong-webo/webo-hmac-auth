@@ -45,3 +45,15 @@ add_action('plugins_loaded', function() {
     $admin_ui = new WeboHmacAuth\AdminUi($key_manager);
     $admin_ui->register();
 });
+
+add_filter('webo_hmac_auth_current_client', function($client) {
+    if (is_array($client)) {
+        return $client;
+    }
+
+    if (isset($GLOBALS['webo_hmac_auth_current_client']) && is_array($GLOBALS['webo_hmac_auth_current_client'])) {
+        return $GLOBALS['webo_hmac_auth_current_client'];
+    }
+
+    return null;
+});
