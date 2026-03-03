@@ -31,6 +31,7 @@ class AdminUi {
         add_action('network_admin_edit_webo_hmac_revoke_key', [$this, 'handle_revoke_key']);
         add_action('network_admin_edit_webo_hmac_rotate_key', [$this, 'handle_rotate_key']);
         add_action('admin_post_webo_hmac_rotate_own_key', [$this, 'handle_rotate_own_key']);
+        add_action('edit_user_profile', [$this, 'render_network_user_edit_section']);
     }
 
     /**
@@ -260,7 +261,8 @@ class AdminUi {
             'secret' => $result['secret'],
         ], 300);
 
-        $this->redirect_with_message('API key created. Secret is shown once.');
+        $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+        $this->redirect_with_message('API key created. Secret is shown once.', false, true, $redirect_to);
     }
 
     /**
@@ -275,10 +277,12 @@ class AdminUi {
         check_admin_referer('webo_hmac_revoke_key_' . $id);
 
         if ($id <= 0 || !$this->key_manager->revoke_client($id)) {
-            $this->redirect_with_message('Failed to revoke key.', true);
+            $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+            $this->redirect_with_message('Failed to revoke key.', true, true, $redirect_to);
         }
 
-        $this->redirect_with_message('API key revoked.');
+        $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+        $this->redirect_with_message('API key revoked.', false, true, $redirect_to);
     }
 
     /**
@@ -294,7 +298,8 @@ class AdminUi {
 
         $result = $this->key_manager->rotate_secret($id);
         if (is_wp_error($result)) {
-            $this->redirect_with_message($result->get_error_message(), true);
+            $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+            $this->redirect_with_message($result->get_error_message(), true, true, $redirect_to);
         }
 
         set_site_transient($this->get_secret_notice_key(), [
@@ -302,7 +307,8 @@ class AdminUi {
             'secret' => $result['secret'],
         ], 300);
 
-        $this->redirect_with_message('Secret rotated. New secret is shown once.');
+        $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+        $this->redirect_with_message('Secret rotated. New secret is shown once.', false, true, $redirect_to);
     }
 
     /**
@@ -330,19 +336,137 @@ class AdminUi {
     }
 
     /**
+     * Render key settings section directly in Network Admin user edit screen.
+     *
+     * @param \WP_User $user Edited user object.
+     */
+    public function render_network_user_edit_section($user) {
+        if (!is_network_admin() || !current_user_can('manage_network_options')) {
+            return;
+        }
+
+        if (!($user instanceof \WP_User) || empty($user->ID)) {
+            return;
+        }
+
+        $clients = $this->key_manager->list_clients_by_user((int) $user->ID);
+        $status_message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
+        $status_type = isset($_GET['type']) ? sanitize_key(wp_unslash($_GET['type'])) : 'success';
+        $redirect_to = network_admin_url('user-edit.php?user_id=' . (int) $user->ID);
+
+        ?>
+        <h2><?php echo esc_html__('WEBO API Keys (HMAC)', 'webo-hmac-auth'); ?></h2>
+
+        <?php if ('' !== $status_message) : ?>
+            <div class="notice <?php echo ('error' === $status_type) ? 'notice-error' : 'notice-success'; ?> inline">
+                <p><?php echo esc_html(rawurldecode($status_message)); ?></p>
+            </div>
+        <?php endif; ?>
+
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row"><?php echo esc_html__('Create new key for this user', 'webo-hmac-auth'); ?></th>
+                <td>
+                    <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_create_key')); ?>">
+                        <?php wp_nonce_field('webo_hmac_create_key'); ?>
+                        <input type="hidden" name="wp_user_id" value="<?php echo esc_attr((string) $user->ID); ?>" />
+                        <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
+                        <p>
+                            <label for="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Allowed Sites', 'webo-hmac-auth'); ?></label><br />
+                            <input id="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>" name="allowed_sites" type="text" class="regular-text" placeholder="1,2,5" />
+                        </p>
+                        <p>
+                            <label for="webo_allowlist_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Allowlist (JSON array)', 'webo-hmac-auth'); ?></label><br />
+                            <textarea id="webo_allowlist_<?php echo esc_attr((string) $user->ID); ?>" name="allowlist" rows="3" cols="60" placeholder='["webo/list-posts"]'></textarea>
+                        </p>
+                        <p>
+                            <label for="webo_denylist_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Denylist (JSON array)', 'webo-hmac-auth'); ?></label><br />
+                            <textarea id="webo_denylist_<?php echo esc_attr((string) $user->ID); ?>" name="denylist" rows="3" cols="60" placeholder='["webo/delete-post"]'></textarea>
+                        </p>
+                        <p>
+                            <label for="webo_rate_limit_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Rate limit / minute', 'webo-hmac-auth'); ?></label><br />
+                            <input id="webo_rate_limit_<?php echo esc_attr((string) $user->ID); ?>" name="rate_limit" type="number" min="1" step="1" value="60" />
+                        </p>
+                        <p>
+                            <button type="submit" class="button button-primary"><?php echo esc_html__('Create Key', 'webo-hmac-auth'); ?></button>
+                        </p>
+                    </form>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><?php echo esc_html__('Existing keys', 'webo-hmac-auth'); ?></th>
+                <td>
+                    <?php if (empty($clients)) : ?>
+                        <p><?php echo esc_html__('No keys for this user.', 'webo-hmac-auth'); ?></p>
+                    <?php else : ?>
+                        <table class="widefat striped">
+                            <thead>
+                                <tr>
+                                    <th><?php echo esc_html__('Key ID', 'webo-hmac-auth'); ?></th>
+                                    <th><?php echo esc_html__('Rate', 'webo-hmac-auth'); ?></th>
+                                    <th><?php echo esc_html__('Status', 'webo-hmac-auth'); ?></th>
+                                    <th><?php echo esc_html__('Last Used', 'webo-hmac-auth'); ?></th>
+                                    <th><?php echo esc_html__('Actions', 'webo-hmac-auth'); ?></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($clients as $client) : ?>
+                                    <tr>
+                                        <td><code><?php echo esc_html($client['key_id']); ?></code></td>
+                                        <td><?php echo esc_html((string) $client['rate_limit']); ?></td>
+                                        <td><?php echo esc_html((string) $client['status']); ?></td>
+                                        <td><?php echo esc_html((string) ($client['last_used_at'] ?: '-')); ?></td>
+                                        <td>
+                                            <?php if ('active' === $client['status']) : ?>
+                                                <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_rotate_key')); ?>" style="display:inline-block;margin-right:6px;">
+                                                    <?php wp_nonce_field('webo_hmac_rotate_key_' . (int) $client['id']); ?>
+                                                    <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
+                                                    <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
+                                                    <button type="submit" class="button button-secondary"><?php echo esc_html__('Rotate', 'webo-hmac-auth'); ?></button>
+                                                </form>
+                                                <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_revoke_key')); ?>" style="display:inline-block;">
+                                                    <?php wp_nonce_field('webo_hmac_revoke_key_' . (int) $client['id']); ?>
+                                                    <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
+                                                    <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
+                                                    <button type="submit" class="button button-link-delete" onclick="return confirm('<?php echo esc_js(__('Revoke this key?', 'webo-hmac-auth')); ?>');"><?php echo esc_html__('Revoke', 'webo-hmac-auth'); ?></button>
+                                                </form>
+                                            <?php else : ?>
+                                                <em><?php echo esc_html__('Revoked', 'webo-hmac-auth'); ?></em>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    /**
      * Redirect back to plugin page with status message.
      *
      * @param string $message Message text.
      * @param bool   $error   Error status.
      */
-    private function redirect_with_message($message, $error = false, $network_context = true) {
+    private function redirect_with_message($message, $error = false, $network_context = true, $redirect_to = '') {
+        $base_url = $network_context ? network_admin_url('admin.php') : admin_url('users.php');
+
+        if (!empty($redirect_to)) {
+            $validated = wp_validate_redirect((string) $redirect_to, '');
+            if (!empty($validated)) {
+                $base_url = $validated;
+            }
+        }
+
         $url = add_query_arg(
             [
-                'page'    => 'webo-hmac-auth',
                 'message' => rawurlencode((string) $message),
                 'type'    => $error ? 'error' : 'success',
             ],
-            $network_context ? network_admin_url('admin.php') : admin_url('users.php')
+            $base_url
         );
 
         wp_safe_redirect($url);
