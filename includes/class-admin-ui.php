@@ -1,0 +1,296 @@
+<?php
+
+namespace WeboHmacAuth;
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class AdminUi {
+    /** @var KeyManager */
+    private $key_manager;
+
+    /**
+     * @param KeyManager $key_manager Key manager service.
+     */
+    public function __construct(KeyManager $key_manager) {
+        $this->key_manager = $key_manager;
+    }
+
+    /**
+     * Register network admin hooks only.
+     */
+    public function register() {
+        if (!is_multisite()) {
+            return;
+        }
+
+        add_action('network_admin_menu', [$this, 'register_menu']);
+        add_action('network_admin_edit_webo_hmac_create_key', [$this, 'handle_create_key']);
+        add_action('network_admin_edit_webo_hmac_revoke_key', [$this, 'handle_revoke_key']);
+        add_action('network_admin_edit_webo_hmac_rotate_key', [$this, 'handle_rotate_key']);
+    }
+
+    /**
+     * Add network admin page.
+     */
+    public function register_menu() {
+        add_menu_page(
+            'WEBO API Keys',
+            'WEBO API Keys',
+            'manage_network_options',
+            'webo-hmac-auth',
+            [$this, 'render_page'],
+            'dashicons-shield-alt',
+            58
+        );
+    }
+
+    /**
+     * Render key list + create form.
+     */
+    public function render_page() {
+        if (!current_user_can('manage_network_options')) {
+            wp_die(esc_html__('You do not have permission to access this page.', 'webo-hmac-auth'));
+        }
+
+        $clients = $this->key_manager->list_clients();
+        $users = get_users([
+            'fields' => ['ID', 'user_login'],
+            'number' => 500,
+            'orderby' => 'user_login',
+            'order' => 'ASC',
+        ]);
+
+        $secret_notice = get_site_transient($this->get_secret_notice_key());
+        if ($secret_notice) {
+            delete_site_transient($this->get_secret_notice_key());
+        }
+
+        $status_message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
+        $status_type = isset($_GET['type']) ? sanitize_key(wp_unslash($_GET['type'])) : 'success';
+
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html__('WEBO API Keys (HMAC)', 'webo-hmac-auth'); ?></h1>
+            <p><?php echo esc_html__('Use these keys for WEBO MCP and WP Abilities endpoints with HMAC signatures.', 'webo-hmac-auth'); ?></p>
+
+            <?php if ('' !== $status_message) : ?>
+                <div class="notice <?php echo ('error' === $status_type) ? 'notice-error' : 'notice-success'; ?> is-dismissible">
+                    <p><?php echo esc_html(rawurldecode($status_message)); ?></p>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($secret_notice) && is_array($secret_notice)) : ?>
+                <div class="notice notice-success is-dismissible">
+                    <p><strong><?php echo esc_html__('Secret (shown once):', 'webo-hmac-auth'); ?></strong></p>
+                    <p><?php echo esc_html($secret_notice['key_id']); ?> : <code><?php echo esc_html($secret_notice['secret']); ?></code></p>
+                    <p><?php echo esc_html__('Copy now. Secret cannot be retrieved later.', 'webo-hmac-auth'); ?></p>
+                </div>
+            <?php endif; ?>
+
+            <h2><?php echo esc_html__('Create Key', 'webo-hmac-auth'); ?></h2>
+            <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_create_key')); ?>">
+                <?php wp_nonce_field('webo_hmac_create_key'); ?>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="wp_user_id"><?php echo esc_html__('Mapped WP User', 'webo-hmac-auth'); ?></label></th>
+                        <td>
+                            <select id="wp_user_id" name="wp_user_id" required>
+                                <option value=""><?php echo esc_html__('Select user', 'webo-hmac-auth'); ?></option>
+                                <?php foreach ($users as $user) : ?>
+                                    <option value="<?php echo esc_attr($user->ID); ?>"><?php echo esc_html($user->user_login . ' (#' . $user->ID . ')'); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="allowed_sites"><?php echo esc_html__('Allowed Sites', 'webo-hmac-auth'); ?></label></th>
+                        <td>
+                            <input id="allowed_sites" name="allowed_sites" type="text" class="regular-text" placeholder="1,2,5" />
+                            <p class="description"><?php echo esc_html__('Comma-separated blog IDs. Empty means all sites.', 'webo-hmac-auth'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="allowlist"><?php echo esc_html__('Allowlist (JSON array)', 'webo-hmac-auth'); ?></label></th>
+                        <td>
+                            <textarea id="allowlist" name="allowlist" rows="4" cols="60" placeholder='["webo/list-posts","webo-list-plugins"]'></textarea>
+                            <p class="description"><?php echo esc_html__('If set, only listed tools/abilities are allowed.', 'webo-hmac-auth'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="denylist"><?php echo esc_html__('Denylist (JSON array)', 'webo-hmac-auth'); ?></label></th>
+                        <td>
+                            <textarea id="denylist" name="denylist" rows="4" cols="60" placeholder='["webo/delete-post"]'></textarea>
+                            <p class="description"><?php echo esc_html__('Denied items always win over allowlist.', 'webo-hmac-auth'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="rate_limit"><?php echo esc_html__('Rate limit / minute', 'webo-hmac-auth'); ?></label></th>
+                        <td>
+                            <input id="rate_limit" name="rate_limit" type="number" min="1" step="1" value="60" />
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button(__('Create Key', 'webo-hmac-auth')); ?>
+            </form>
+
+            <hr />
+
+            <h2><?php echo esc_html__('Key List', 'webo-hmac-auth'); ?></h2>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th><?php echo esc_html__('ID', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Key ID', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('WP User', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Rate Limit', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Status', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Last Used', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Created', 'webo-hmac-auth'); ?></th>
+                        <th><?php echo esc_html__('Actions', 'webo-hmac-auth'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($clients)) : ?>
+                        <tr>
+                            <td colspan="8"><?php echo esc_html__('No API keys found.', 'webo-hmac-auth'); ?></td>
+                        </tr>
+                    <?php else : ?>
+                        <?php foreach ($clients as $client) : ?>
+                            <tr>
+                                <td><?php echo esc_html((string) $client['id']); ?></td>
+                                <td><code><?php echo esc_html($client['key_id']); ?></code></td>
+                                <td><?php echo esc_html(($client['user_login'] ?: 'unknown') . ' (#' . (int) $client['wp_user_id'] . ')'); ?></td>
+                                <td><?php echo esc_html((string) $client['rate_limit']); ?></td>
+                                <td><?php echo esc_html((string) $client['status']); ?></td>
+                                <td><?php echo esc_html((string) ($client['last_used_at'] ?: '-')); ?></td>
+                                <td><?php echo esc_html((string) $client['created_at']); ?></td>
+                                <td>
+                                    <?php if ('active' === $client['status']) : ?>
+                                        <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_rotate_key')); ?>" style="display:inline-block;margin-right:6px;">
+                                            <?php wp_nonce_field('webo_hmac_rotate_key_' . (int) $client['id']); ?>
+                                            <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
+                                            <button type="submit" class="button button-secondary"><?php echo esc_html__('Rotate', 'webo-hmac-auth'); ?></button>
+                                        </form>
+                                        <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_revoke_key')); ?>" style="display:inline-block;">
+                                            <?php wp_nonce_field('webo_hmac_revoke_key_' . (int) $client['id']); ?>
+                                            <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
+                                            <button type="submit" class="button button-link-delete" onclick="return confirm('<?php echo esc_js(__('Revoke this key?', 'webo-hmac-auth')); ?>');"><?php echo esc_html__('Revoke', 'webo-hmac-auth'); ?></button>
+                                        </form>
+                                    <?php else : ?>
+                                        <em><?php echo esc_html__('Revoked', 'webo-hmac-auth'); ?></em>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
+    }
+
+    /**
+     * Handle create key submission.
+     */
+    public function handle_create_key() {
+        if (!current_user_can('manage_network_options')) {
+            wp_die(esc_html__('You are not allowed to do this.', 'webo-hmac-auth'));
+        }
+
+        check_admin_referer('webo_hmac_create_key');
+
+        $payload = [
+            'wp_user_id'    => isset($_POST['wp_user_id']) ? wp_unslash($_POST['wp_user_id']) : '',
+            'allowed_sites' => isset($_POST['allowed_sites']) ? wp_unslash($_POST['allowed_sites']) : '',
+            'allowlist'     => isset($_POST['allowlist']) ? wp_unslash($_POST['allowlist']) : '',
+            'denylist'      => isset($_POST['denylist']) ? wp_unslash($_POST['denylist']) : '',
+            'rate_limit'    => isset($_POST['rate_limit']) ? wp_unslash($_POST['rate_limit']) : '60',
+        ];
+
+        $result = $this->key_manager->create_client($payload);
+
+        if (is_wp_error($result)) {
+            $this->redirect_with_message($result->get_error_message(), true);
+        }
+
+        set_site_transient($this->get_secret_notice_key(), [
+            'key_id' => $result['key_id'],
+            'secret' => $result['secret'],
+        ], 300);
+
+        $this->redirect_with_message('API key created. Secret is shown once.');
+    }
+
+    /**
+     * Handle revoke key submission.
+     */
+    public function handle_revoke_key() {
+        if (!current_user_can('manage_network_options')) {
+            wp_die(esc_html__('You are not allowed to do this.', 'webo-hmac-auth'));
+        }
+
+        $id = isset($_POST['id']) ? (int) wp_unslash($_POST['id']) : 0;
+        check_admin_referer('webo_hmac_revoke_key_' . $id);
+
+        if ($id <= 0 || !$this->key_manager->revoke_client($id)) {
+            $this->redirect_with_message('Failed to revoke key.', true);
+        }
+
+        $this->redirect_with_message('API key revoked.');
+    }
+
+    /**
+     * Handle rotate secret submission.
+     */
+    public function handle_rotate_key() {
+        if (!current_user_can('manage_network_options')) {
+            wp_die(esc_html__('You are not allowed to do this.', 'webo-hmac-auth'));
+        }
+
+        $id = isset($_POST['id']) ? (int) wp_unslash($_POST['id']) : 0;
+        check_admin_referer('webo_hmac_rotate_key_' . $id);
+
+        $result = $this->key_manager->rotate_secret($id);
+        if (is_wp_error($result)) {
+            $this->redirect_with_message($result->get_error_message(), true);
+        }
+
+        set_site_transient($this->get_secret_notice_key(), [
+            'key_id' => $result['key_id'],
+            'secret' => $result['secret'],
+        ], 300);
+
+        $this->redirect_with_message('Secret rotated. New secret is shown once.');
+    }
+
+    /**
+     * Redirect back to plugin page with status message.
+     *
+     * @param string $message Message text.
+     * @param bool   $error   Error status.
+     */
+    private function redirect_with_message($message, $error = false) {
+        $url = add_query_arg(
+            [
+                'page'    => 'webo-hmac-auth',
+                'message' => rawurlencode((string) $message),
+                'type'    => $error ? 'error' : 'success',
+            ],
+            network_admin_url('admin.php')
+        );
+
+        wp_safe_redirect($url);
+        exit;
+    }
+
+    /**
+     * Build secret notice transient key per admin user.
+     *
+     * @return string
+     */
+    private function get_secret_notice_key() {
+        return 'webo_hmac_secret_notice_' . get_current_user_id();
+    }
+}
