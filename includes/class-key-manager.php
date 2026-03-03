@@ -42,6 +42,34 @@ class KeyManager {
     }
 
     /**
+     * List clients mapped to a specific WordPress user.
+     *
+     * @param int $wp_user_id WordPress user id.
+     *
+     * @return array
+     */
+    public function list_clients_by_user($wp_user_id) {
+        global $wpdb;
+
+        $table = $this->get_table_name();
+        $users_table = $wpdb->users;
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT c.*, u.user_login
+                FROM {$table} c
+                LEFT JOIN {$users_table} u ON u.ID = c.wp_user_id
+                WHERE c.wp_user_id = %d
+                ORDER BY c.id DESC",
+                (int) $wp_user_id
+            ),
+            ARRAY_A
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
+
+    /**
      * Create a new API client and return one-time plaintext secret.
      *
      * @param array $data Form data.
@@ -179,6 +207,40 @@ class KeyManager {
             'key_id' => $row['key_id'],
             'secret' => $secret,
         ];
+    }
+
+    /**
+     * Rotate secret for key owned by specific user.
+     *
+     * @param int $id         Key row id.
+     * @param int $wp_user_id Owner user id.
+     *
+     * @return array|WP_Error
+     */
+    public function rotate_secret_for_user($id, $wp_user_id) {
+        global $wpdb;
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, key_id, status, wp_user_id FROM {$this->get_table_name()} WHERE id = %d LIMIT 1",
+                (int) $id
+            ),
+            ARRAY_A
+        );
+
+        if (!$row) {
+            return new WP_Error('webo_not_found', 'API key not found.');
+        }
+
+        if ((int) $row['wp_user_id'] !== (int) $wp_user_id) {
+            return new WP_Error('webo_forbidden', 'You can only rotate your own API keys.');
+        }
+
+        if ('active' !== (string) $row['status']) {
+            return new WP_Error('webo_inactive_key', 'Only active API keys can be rotated.');
+        }
+
+        return $this->rotate_secret((int) $row['id']);
     }
 
     /**

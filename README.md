@@ -12,7 +12,8 @@ HMAC authentication layer for:
 
 ## Permission model
 - Key execution runtime maps to `wp_user_id`, so tool permissions follow the user's role/capabilities on the current site.
-- Key management actions (create/revoke/rotate) require `manage_network_options` (network admin only).
+- Network admin (`manage_network_options`) can create/revoke/rotate all keys at **Network Admin → Users → WEBO API Keys**.
+- Regular users can rotate only their own active keys at **Site Admin → Users → WEBO API Keys**.
 
 ## Security model
 - API key maps to a WordPress user (`wp_user_id`) (C1 model).
