@@ -35,14 +35,12 @@ class AdminUi {
      * Add network admin page.
      */
     public function register_menu() {
-        add_menu_page(
+        add_users_page(
             'WEBO API Keys',
             'WEBO API Keys',
             'manage_network_options',
             'webo-hmac-auth',
-            [$this, 'render_page'],
-            'dashicons-shield-alt',
-            58
+            [$this, 'render_page']
         );
     }
 
