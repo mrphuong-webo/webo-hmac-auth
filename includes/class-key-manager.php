@@ -314,6 +314,143 @@ class KeyManager {
     }
 
     /**
+     * Create portal-connect client with configurable status.
+     *
+     * @param array $data Client creation payload.
+     *
+     * @return array|WP_Error
+     */
+    public function create_portal_client($data) {
+        global $wpdb;
+
+        $wp_user_id = isset($data['wp_user_id']) ? (int) $data['wp_user_id'] : 0;
+        $rate_limit = isset($data['rate_limit']) ? max(1, (int) $data['rate_limit']) : 60;
+        $status     = isset($data['status']) ? sanitize_key((string) $data['status']) : 'pending';
+
+        if (!in_array($status, ['pending', 'active', 'revoked'], true)) {
+            $status = 'pending';
+        }
+
+        if ($wp_user_id <= 0 || !get_user_by('id', $wp_user_id)) {
+            return new WP_Error('webo_invalid_user', 'Invalid WordPress user selected.');
+        }
+
+        $allowlist = $this->normalize_json_array(isset($data['allowlist']) ? $data['allowlist'] : '');
+        if (is_wp_error($allowlist)) {
+            return $allowlist;
+        }
+
+        $denylist = $this->normalize_json_array(isset($data['denylist']) ? $data['denylist'] : '');
+        if (is_wp_error($denylist)) {
+            return $denylist;
+        }
+
+        $allowed_sites = $this->normalize_sites(isset($data['allowed_sites']) ? $data['allowed_sites'] : '');
+        if (is_wp_error($allowed_sites)) {
+            return $allowed_sites;
+        }
+
+        $key_id = $this->generate_portal_key_id();
+        $secret = $this->generate_portal_secret();
+
+        $encrypted_secret = $this->encrypt_secret($secret);
+        if (!$encrypted_secret) {
+            return new WP_Error('webo_encrypt_failed', 'Could not securely store secret. Ensure OpenSSL is available.');
+        }
+
+        $inserted = $wpdb->insert(
+            $this->get_table_name(),
+            [
+                'key_id'        => $key_id,
+                'secret_hash'   => password_hash($secret, PASSWORD_DEFAULT),
+                'wp_user_id'    => $wp_user_id,
+                'allowed_sites' => !empty($allowed_sites) ? wp_json_encode($allowed_sites) : null,
+                'allowlist'     => !empty($allowlist) ? wp_json_encode($allowlist) : null,
+                'denylist'      => !empty($denylist) ? wp_json_encode($denylist) : null,
+                'rate_limit'    => $rate_limit,
+                'status'        => $status,
+                'created_at'    => current_time('mysql'),
+            ],
+            [
+                '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s',
+            ]
+        );
+
+        if (false === $inserted) {
+            return new WP_Error('webo_insert_failed', 'Failed to create API client.');
+        }
+
+        $this->store_encrypted_secret($key_id, $encrypted_secret);
+
+        return [
+            'id'       => (int) $wpdb->insert_id,
+            'key_id'   => $key_id,
+            'secret'   => $secret,
+            'status'   => $status,
+            'user_id'  => $wp_user_id,
+            'rate_limit' => $rate_limit,
+        ];
+    }
+
+    /**
+     * Set key status by key id.
+     *
+     * @param string $key_id Key ID.
+     * @param string $status Target status.
+     *
+     * @return bool
+     */
+    public function set_client_status_by_key_id($key_id, $status) {
+        global $wpdb;
+
+        $key_id = sanitize_text_field((string) $key_id);
+        $status = sanitize_key((string) $status);
+        if ('' === $key_id || !in_array($status, ['pending', 'active', 'revoked'], true)) {
+            return false;
+        }
+
+        $updated = $wpdb->update(
+            $this->get_table_name(),
+            ['status' => $status],
+            ['key_id' => $key_id],
+            ['%s'],
+            ['%s']
+        );
+
+        return false !== $updated;
+    }
+
+    /**
+     * Delete key by key id.
+     *
+     * @param string $key_id Key ID.
+     *
+     * @return bool
+     */
+    public function delete_client_by_key_id($key_id) {
+        global $wpdb;
+
+        $key_id = sanitize_text_field((string) $key_id);
+        if ('' === $key_id) {
+            return false;
+        }
+
+        $deleted = $wpdb->delete(
+            $this->get_table_name(),
+            ['key_id' => $key_id],
+            ['%s']
+        );
+
+        $store = get_site_option('webo_hmac_auth_secret_store', []);
+        if (is_array($store) && isset($store[$key_id])) {
+            unset($store[$key_id]);
+            update_site_option('webo_hmac_auth_secret_store', $store);
+        }
+
+        return false !== $deleted;
+    }
+
+    /**
      * Normalize allowlist/denylist JSON into string array.
      *
      * @param string $json_raw Raw JSON input.
@@ -388,12 +525,30 @@ class KeyManager {
     }
 
     /**
+     * Generate portal key id in required format.
+     *
+     * @return string
+     */
+    private function generate_portal_key_id() {
+        return 'webo_' . substr(strtolower(bin2hex(random_bytes(16))), 0, 16);
+    }
+
+    /**
      * Generate one-time plaintext secret.
      *
      * @return string
      */
     private function generate_secret() {
         return $this->base64url_encode(random_bytes(32));
+    }
+
+    /**
+     * Generate portal secret in required length.
+     *
+     * @return string
+     */
+    private function generate_portal_secret() {
+        return $this->base64url_encode(random_bytes(48));
     }
 
     /**
