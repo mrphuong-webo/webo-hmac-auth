@@ -11,13 +11,11 @@ HMAC authentication layer for:
 1. Upload plugin folder to `wp-content/plugins/webo-hmac-auth`.
 2. Go to **Network Admin → Plugins**.
 3. Click **Network Activate** for **WEBO HMAC Auth**.
-4. Go to **Network Admin → Users → WEBO API Keys** to manage keys.
-5. Or manage per-user keys directly at **Network Admin → Users → Edit User** (`/wp-admin/network/user-edit.php?user_id={id}`).
+4. Manage per-user keys directly at **Network Admin → Users → Edit User** (`/wp-admin/network/user-edit.php?user_id={id}`).
 
 ## Permission model
 - Key execution runtime maps to `wp_user_id`, so tool permissions follow the user's role/capabilities on the current site.
-- Network admin (`manage_network_options`) can create/revoke/rotate all keys at **Network Admin → Users → WEBO API Keys**.
-- Regular users can rotate only their own active keys at **Site Admin → Users → WEBO API Keys**.
+- Network admin (`manage_network_options`) can create/revoke/rotate all keys at **Network Admin → Users → Edit User**.
 
 ## Security model
 - API key maps to a WordPress user (`wp_user_id`) (C1 model).
