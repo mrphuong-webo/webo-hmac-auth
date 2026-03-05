@@ -614,6 +614,31 @@ class KeyManager {
     }
 
     /**
+     * Delete key by row id.
+     *
+     * @param int $id Row id.
+     *
+     * @return bool
+     */
+    public function delete_client_by_id($id) {
+        global $wpdb;
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT key_id FROM {$this->get_table_name()} WHERE id = %d LIMIT 1",
+                (int) $id
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($row) || empty($row['key_id'])) {
+            return false;
+        }
+
+        return $this->delete_client_by_key_id((string) $row['key_id']);
+    }
+
+    /**
      * Normalize allowlist/denylist JSON into string array.
      *
      * @param string $json_raw Raw JSON input.

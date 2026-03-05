@@ -27,6 +27,7 @@ class AdminUi {
 
         add_action('network_admin_edit_webo_hmac_create_key', [$this, 'handle_create_key']);
         add_action('network_admin_edit_webo_hmac_revoke_key', [$this, 'handle_revoke_key']);
+        add_action('network_admin_edit_webo_hmac_force_revoke_key', [$this, 'handle_force_revoke_key']);
         add_action('network_admin_edit_webo_hmac_rotate_key', [$this, 'handle_rotate_key']);
         add_action('wp_ajax_webo_hmac_create_key_ajax', [$this, 'handle_create_key_ajax']);
         add_action('edit_user_profile', [$this, 'render_network_user_edit_section']);
@@ -123,6 +124,26 @@ class AdminUi {
 
         $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
         $this->redirect_with_message('API key revoked.', false, true, $redirect_to);
+    }
+
+    /**
+     * Handle force revoke key submission (hard delete).
+     */
+    public function handle_force_revoke_key() {
+        if (!current_user_can('manage_network_options')) {
+            wp_die(esc_html__('You are not allowed to do this.', 'webo-hmac-auth'));
+        }
+
+        $id = isset($_POST['id']) ? (int) wp_unslash($_POST['id']) : 0;
+        check_admin_referer('webo_hmac_force_revoke_key_' . $id);
+
+        if ($id <= 0 || !$this->key_manager->delete_client_by_id($id)) {
+            $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+            $this->redirect_with_message('Failed to force revoke key.', true, true, $redirect_to);
+        }
+
+        $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
+        $this->redirect_with_message('API key force revoked and deleted.', false, true, $redirect_to);
     }
 
     /**
@@ -280,6 +301,12 @@ class AdminUi {
                                             <?php else : ?>
                                                 <em><?php echo esc_html__('Revoked', 'webo-hmac-auth'); ?></em>
                                             <?php endif; ?>
+                                            <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_force_revoke_key')); ?>" style="display:inline-block;margin-left:6px;">
+                                                <?php wp_nonce_field('webo_hmac_force_revoke_key_' . (int) $client['id']); ?>
+                                                <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
+                                                <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
+                                                <button type="submit" class="button button-link-delete" onclick="return confirm('<?php echo esc_js(__('Force revoke and permanently delete this key?', 'webo-hmac-auth')); ?>');"><?php echo esc_html__('Force Revoke', 'webo-hmac-auth'); ?></button>
+                                            </form>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
