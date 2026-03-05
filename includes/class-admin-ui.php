@@ -96,6 +96,9 @@ class AdminUi {
             'message' => __('API key created. Secret is shown once.', 'webo-hmac-auth'),
             'key_id'  => $result['key_id'],
             'secret'  => $result['secret'],
+            'rate_limit' => isset($result['rate_limit']) ? (int) $result['rate_limit'] : (int) $payload['rate_limit'],
+            'status' => isset($result['status']) ? (string) $result['status'] : 'active',
+            'last_used_at' => isset($result['last_used_at']) && '' !== (string) $result['last_used_at'] ? (string) $result['last_used_at'] : '-',
         ]);
     }
 
@@ -232,10 +235,11 @@ class AdminUi {
             <tr>
                 <th scope="row"><?php echo esc_html__('Existing keys', 'webo-hmac-auth'); ?></th>
                 <td>
+                    <div id="webo_keys_container_<?php echo esc_attr((string) $user->ID); ?>">
                     <?php if (empty($clients)) : ?>
-                        <p><?php echo esc_html__('No keys for this user.', 'webo-hmac-auth'); ?></p>
+                        <p id="webo_no_keys_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('No keys for this user.', 'webo-hmac-auth'); ?></p>
                     <?php else : ?>
-                        <table class="widefat striped">
+                        <table id="webo_keys_table_<?php echo esc_attr((string) $user->ID); ?>" class="widefat striped">
                             <thead>
                                 <tr>
                                     <th><?php echo esc_html__('Key ID', 'webo-hmac-auth'); ?></th>
@@ -245,7 +249,7 @@ class AdminUi {
                                     <th><?php echo esc_html__('Actions', 'webo-hmac-auth'); ?></th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="webo_keys_tbody_<?php echo esc_attr((string) $user->ID); ?>">
                                 <?php foreach ($clients as $client) : ?>
                                     <tr>
                                         <td><code><?php echo esc_html($client['key_id']); ?></code></td>
@@ -275,6 +279,7 @@ class AdminUi {
                             </tbody>
                         </table>
                     <?php endif; ?>
+                    </div>
 
                     <script>
                     (function () {
@@ -288,9 +293,83 @@ class AdminUi {
                         const createForm = document.getElementById('webo_create_key_form_' + uid);
                         const createButton = document.getElementById('webo_create_key_button_' + uid);
                         const createNotice = document.getElementById('webo_create_key_notice_' + uid);
+                        const keysContainer = document.getElementById('webo_keys_container_' + uid);
+                        const tableId = 'webo_keys_table_' + uid;
+                        const tbodyId = 'webo_keys_tbody_' + uid;
+                        const noKeysId = 'webo_no_keys_' + uid;
 
                         function selectedValues(selectEl) {
                             return Array.from(selectEl.selectedOptions).map(function (opt) { return opt.value; });
+                        }
+
+                        function escapeHtml(value) {
+                            return String(value)
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;')
+                                .replace(/"/g, '&quot;')
+                                .replace(/'/g, '&#039;');
+                        }
+
+                        function ensureKeysTable() {
+                            let table = document.getElementById(tableId);
+                            let tbody = document.getElementById(tbodyId);
+                            const noKeys = document.getElementById(noKeysId);
+
+                            if (table && tbody) {
+                                if (noKeys) {
+                                    noKeys.remove();
+                                }
+                                return tbody;
+                            }
+
+                            if (!keysContainer) {
+                                return null;
+                            }
+
+                            if (noKeys) {
+                                noKeys.remove();
+                            }
+
+                            table = document.createElement('table');
+                            table.id = tableId;
+                            table.className = 'widefat striped';
+                            table.innerHTML = '<thead><tr>' +
+                                '<th><?php echo esc_js(__('Key ID', 'webo-hmac-auth')); ?></th>' +
+                                '<th><?php echo esc_js(__('Rate', 'webo-hmac-auth')); ?></th>' +
+                                '<th><?php echo esc_js(__('Status', 'webo-hmac-auth')); ?></th>' +
+                                '<th><?php echo esc_js(__('Last Used', 'webo-hmac-auth')); ?></th>' +
+                                '<th><?php echo esc_js(__('Actions', 'webo-hmac-auth')); ?></th>' +
+                                '</tr></thead>' +
+                                '<tbody id="' + tbodyId + '"></tbody>';
+                            keysContainer.appendChild(table);
+                            return document.getElementById(tbodyId);
+                        }
+
+                        function appendCreatedKeyRow(data) {
+                            const tbody = ensureKeysTable();
+                            if (!tbody) {
+                                return;
+                            }
+
+                            const keyId = data && data.key_id ? data.key_id : '';
+                            const rateInput = document.getElementById('webo_rate_limit_' + uid);
+                            const rate = data && data.rate_limit ? data.rate_limit : (rateInput ? rateInput.value : '60');
+                            const status = data && data.status ? data.status : 'active';
+                            const lastUsed = data && data.last_used_at ? data.last_used_at : '-';
+
+                            const row = document.createElement('tr');
+                            row.innerHTML = '<td><code>' + escapeHtml(keyId) + '</code></td>' +
+                                '<td>' + escapeHtml(rate) + '</td>' +
+                                '<td>' + escapeHtml(status) + '</td>' +
+                                '<td>' + escapeHtml(lastUsed) + '</td>' +
+                                '<td><em><?php echo esc_js(__('Refresh page to manage this key.', 'webo-hmac-auth')); ?></em></td>';
+
+                            if (tbody.firstChild) {
+                                tbody.insertBefore(row, tbody.firstChild);
+                            } else {
+                                tbody.appendChild(row);
+                            }
                         }
 
                         if (sitePicker && siteInput) {
@@ -339,6 +418,8 @@ class AdminUi {
                                                 'Key ID: <code>' + keyId + '</code><br>' +
                                                 'Secret: <code>' + secret + '</code><br>' +
                                                 '<?php echo esc_js(__('Copy now. Secret cannot be retrieved later.', 'webo-hmac-auth')); ?></p></div>';
+
+                                            appendCreatedKeyRow(payload.data);
                                         } else {
                                             const errMsg = payload && payload.data && payload.data.message ? payload.data.message : '<?php echo esc_js(__('Failed to create key.', 'webo-hmac-auth')); ?>';
                                             createNotice.innerHTML = '<div class="notice notice-error inline"><p>' + errMsg + '</p></div>';
