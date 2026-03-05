@@ -60,3 +60,7 @@ curl -X POST "$URL" \
 ```
 
 > Legacy endpoint `/wp-json/mcp/mcp-adapter-default-server` vẫn được hỗ trợ nếu môi trường cũ đang dùng.
+
+## Integration guides
+
+- Postman + n8n + prompt mẫu cho ChatGPT: `POSTMAN_N8N_CHATGPT_GUIDE.md`
