@@ -127,7 +127,7 @@ class AdminUi {
     }
 
     /**
-     * Handle force revoke key submission (hard delete).
+     * Handle delete key submission (hard delete).
      */
     public function handle_force_revoke_key() {
         if (!current_user_can('manage_network_options')) {
@@ -139,11 +139,11 @@ class AdminUi {
 
         if ($id <= 0 || !$this->key_manager->delete_client_by_id($id)) {
             $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
-            $this->redirect_with_message('Failed to force revoke key.', true, true, $redirect_to);
+            $this->redirect_with_message('Failed to delete key.', true, true, $redirect_to);
         }
 
         $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
-        $this->redirect_with_message('API key force revoked and deleted.', false, true, $redirect_to);
+        $this->redirect_with_message('API key deleted permanently.', false, true, $redirect_to);
     }
 
     /**
@@ -305,7 +305,7 @@ class AdminUi {
                                                 <?php wp_nonce_field('webo_hmac_force_revoke_key_' . (int) $client['id']); ?>
                                                 <input type="hidden" name="id" value="<?php echo esc_attr((string) $client['id']); ?>" />
                                                 <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
-                                                <button type="submit" class="button button-link-delete" onclick="return confirm('<?php echo esc_js(__('Force revoke and permanently delete this key?', 'webo-hmac-auth')); ?>');"><?php echo esc_html__('Force Revoke', 'webo-hmac-auth'); ?></button>
+                                                <button type="submit" class="button button-link-delete" onclick="return confirm('<?php echo esc_js(__('Delete this key permanently?', 'webo-hmac-auth')); ?>');"><?php echo esc_html__('Delete', 'webo-hmac-auth'); ?></button>
                                             </form>
                                         </td>
                                     </tr>
