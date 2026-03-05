@@ -1,12 +1,13 @@
 <?php
 /**
  * Plugin Name: WEBO HMAC Auth
- * Description: HMAC authentication middleware for WEBO MCP and WP Abilities endpoints (multisite-ready, network admin managed API keys).
+ * Description: HMAC authentication middleware for WEBO WordPress MCP and WP Abilities endpoints (multisite-ready, network admin managed API keys).
  * Version: 1.0.0
  * Author: WEBO
  * Text Domain: webo-hmac-auth
  * Requires at least: 6.0
  * Requires PHP: 7.4
+ * Requires Plugins: webo-wordpress-mcp
  * Network: true
  *
  * Network activation notes:

@@ -1,8 +1,11 @@
 # WEBO HMAC Auth
 
 HMAC authentication layer for:
-- `/wp-json/mcp/*`
+- `/wp-json/mcp/*` (khuyến nghị: `/wp-json/mcp/v1/router`)
 - `/wp-json/wp-abilities/*`
+
+## Dependency
+- Plugin này hoạt động cùng `webo-wordpress-mcp` (core MCP gateway).
 
 ## Network activation (multisite)
 1. Upload plugin folder to `wp-content/plugins/webo-hmac-auth`.
@@ -40,9 +43,9 @@ SHA256(BODY_RAW)
 KEY_ID="wk_xxx"
 SECRET="<one-time-secret>"
 TS="$(date +%s)"
-URL="https://w88.icu/wp-json/mcp/mcp-adapter-default-server"
+URL="https://w88.icu/wp-json/mcp/v1/router"
 METHOD="POST"
-PATH="/wp-json/mcp/mcp-adapter-default-server"
+PATH="/wp-json/mcp/v1/router"
 BODY='{"jsonrpc":"2.0","method":"tools/list","id":1}'
 
 BODY_HASH="$(printf '%s' "$BODY" | openssl dgst -sha256 -binary | xxd -p -c 256)"
@@ -56,3 +59,5 @@ curl -X POST "$URL" \
   -H "X-WEBO-SIGN: $SIGN" \
   -d "$BODY"
 ```
+
+> Legacy endpoint `/wp-json/mcp/mcp-adapter-default-server` vẫn được hỗ trợ nếu môi trường cũ đang dùng.
