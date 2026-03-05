@@ -9,6 +9,9 @@ if (!defined('ABSPATH')) {
 }
 
 class KeyManager {
+    /** @var bool */
+    private $key_name_column_checked = false;
+
     /**
      * Return multisite-wide API clients table name.
      *
@@ -26,6 +29,8 @@ class KeyManager {
      */
     public function list_clients() {
         global $wpdb;
+
+        $this->ensure_key_name_column();
 
         $table = $this->get_table_name();
         $users_table = $wpdb->users;
@@ -50,6 +55,8 @@ class KeyManager {
      */
     public function list_clients_by_user($wp_user_id) {
         global $wpdb;
+
+        $this->ensure_key_name_column();
 
         $table = $this->get_table_name();
         $users_table = $wpdb->users;
@@ -79,7 +86,10 @@ class KeyManager {
     public function create_client($data) {
         global $wpdb;
 
+        $this->ensure_key_name_column();
+
         $wp_user_id = isset($data['wp_user_id']) ? (int) $data['wp_user_id'] : 0;
+        $key_name = isset($data['key_name']) ? sanitize_text_field((string) $data['key_name']) : '';
         $rate_limit = isset($data['rate_limit']) ? max(1, (int) $data['rate_limit']) : 60;
 
         if ($wp_user_id <= 0 || !get_user_by('id', $wp_user_id)) {
@@ -115,6 +125,7 @@ class KeyManager {
                 'key_id'       => $key_id,
                 'secret_hash'  => password_hash($secret, PASSWORD_DEFAULT),
                 'wp_user_id'   => $wp_user_id,
+                'key_name'     => '' !== $key_name ? $key_name : null,
                 'allowed_sites'=> !empty($allowed_sites) ? wp_json_encode($allowed_sites) : null,
                 'allowlist'    => !empty($allowlist) ? wp_json_encode($allowlist) : null,
                 'denylist'     => !empty($denylist) ? wp_json_encode($denylist) : null,
@@ -123,7 +134,7 @@ class KeyManager {
                 'created_at'   => current_time('mysql'),
             ],
             [
-                '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s',
+                '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s',
             ]
         );
 
@@ -134,9 +145,13 @@ class KeyManager {
         $this->store_encrypted_secret($key_id, $encrypted_secret);
 
         return [
-            'id'     => (int) $wpdb->insert_id,
-            'key_id' => $key_id,
-            'secret' => $secret,
+            'id'         => (int) $wpdb->insert_id,
+            'key_id'     => $key_id,
+            'secret'     => $secret,
+            'key_name'   => $key_name,
+            'rate_limit' => $rate_limit,
+            'status'     => 'active',
+            'last_used_at' => '-',
         ];
     }
 
@@ -323,7 +338,10 @@ class KeyManager {
     public function create_portal_client($data) {
         global $wpdb;
 
+        $this->ensure_key_name_column();
+
         $wp_user_id = isset($data['wp_user_id']) ? (int) $data['wp_user_id'] : 0;
+        $key_name   = isset($data['key_name']) ? sanitize_text_field((string) $data['key_name']) : '';
         $rate_limit = isset($data['rate_limit']) ? max(1, (int) $data['rate_limit']) : 60;
         $status     = isset($data['status']) ? sanitize_key((string) $data['status']) : 'pending';
 
@@ -364,6 +382,7 @@ class KeyManager {
                 'key_id'        => $key_id,
                 'secret_hash'   => password_hash($secret, PASSWORD_DEFAULT),
                 'wp_user_id'    => $wp_user_id,
+                'key_name'      => '' !== $key_name ? $key_name : null,
                 'allowed_sites' => !empty($allowed_sites) ? wp_json_encode($allowed_sites) : null,
                 'allowlist'     => !empty($allowlist) ? wp_json_encode($allowlist) : null,
                 'denylist'      => !empty($denylist) ? wp_json_encode($denylist) : null,
@@ -372,7 +391,7 @@ class KeyManager {
                 'created_at'    => current_time('mysql'),
             ],
             [
-                '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s',
+                '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s',
             ]
         );
 
@@ -383,13 +402,43 @@ class KeyManager {
         $this->store_encrypted_secret($key_id, $encrypted_secret);
 
         return [
-            'id'       => (int) $wpdb->insert_id,
-            'key_id'   => $key_id,
-            'secret'   => $secret,
-            'status'   => $status,
-            'user_id'  => $wp_user_id,
+            'id'         => (int) $wpdb->insert_id,
+            'key_id'     => $key_id,
+            'secret'     => $secret,
+            'key_name'   => $key_name,
             'rate_limit' => $rate_limit,
+            'status'     => $status,
+            'last_used_at' => '-',
+            'user_id'    => $wp_user_id,
         ];
+    }
+
+    /**
+     * Ensure key_name column exists for upgraded sites.
+     */
+    private function ensure_key_name_column() {
+        global $wpdb;
+
+        if ($this->key_name_column_checked) {
+            return;
+        }
+
+        $this->key_name_column_checked = true;
+
+        $table = $this->get_table_name();
+        $column = $wpdb->get_var(
+            $wpdb->prepare(
+                "SHOW COLUMNS FROM {$table} LIKE %s",
+                'key_name'
+            )
+        );
+
+        if (null !== $column) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $wpdb->query("ALTER TABLE {$table} ADD COLUMN key_name VARCHAR(191) NULL AFTER wp_user_id");
     }
 
     /**

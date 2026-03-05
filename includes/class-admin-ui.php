@@ -44,6 +44,7 @@ class AdminUi {
 
         $payload = [
             'wp_user_id'    => isset($_POST['wp_user_id']) ? wp_unslash($_POST['wp_user_id']) : '',
+            'key_name'      => isset($_POST['key_name']) ? wp_unslash($_POST['key_name']) : '',
             'allowed_sites' => isset($_POST['allowed_sites']) ? wp_unslash($_POST['allowed_sites']) : '',
             'allowlist'     => isset($_POST['allowlist']) ? wp_unslash($_POST['allowlist']) : '',
             'denylist'      => isset($_POST['denylist']) ? wp_unslash($_POST['denylist']) : '',
@@ -79,6 +80,7 @@ class AdminUi {
 
         $payload = [
             'wp_user_id'    => isset($_POST['wp_user_id']) ? wp_unslash($_POST['wp_user_id']) : '',
+            'key_name'      => isset($_POST['key_name']) ? wp_unslash($_POST['key_name']) : '',
             'allowed_sites' => isset($_POST['allowed_sites']) ? wp_unslash($_POST['allowed_sites']) : '',
             'allowlist'     => isset($_POST['allowlist']) ? wp_unslash($_POST['allowlist']) : '',
             'denylist'      => isset($_POST['denylist']) ? wp_unslash($_POST['denylist']) : '',
@@ -96,6 +98,7 @@ class AdminUi {
             'message' => __('API key created. Secret is shown once.', 'webo-hmac-auth'),
             'key_id'  => $result['key_id'],
             'secret'  => $result['secret'],
+            'key_name' => isset($result['key_name']) ? (string) $result['key_name'] : '',
             'rate_limit' => isset($result['rate_limit']) ? (int) $result['rate_limit'] : (int) $payload['rate_limit'],
             'status' => isset($result['status']) ? (string) $result['status'] : 'active',
             'last_used_at' => isset($result['last_used_at']) && '' !== (string) $result['last_used_at'] ? (string) $result['last_used_at'] : '-',
@@ -186,6 +189,10 @@ class AdminUi {
                         <input type="hidden" name="wp_user_id" value="<?php echo esc_attr((string) $user->ID); ?>" />
                         <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
                         <p>
+                            <label for="webo_key_name_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Key Name', 'webo-hmac-auth'); ?></label><br />
+                            <input id="webo_key_name_<?php echo esc_attr((string) $user->ID); ?>" name="key_name" type="text" class="regular-text" maxlength="191" placeholder="example: n8n-prod, mobile-app, agent-01" />
+                        </p>
+                        <p>
                             <label for="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Allowed Sites', 'webo-hmac-auth'); ?></label><br />
                             <select id="webo_allowed_sites_picker_<?php echo esc_attr((string) $user->ID); ?>" multiple size="6" style="min-width:420px;">
                                 <?php if (is_array($user_blogs)) : ?>
@@ -240,6 +247,7 @@ class AdminUi {
                         <table id="webo_keys_table_<?php echo esc_attr((string) $user->ID); ?>" class="widefat striped">
                             <thead>
                                 <tr>
+                                    <th><?php echo esc_html__('Key Name', 'webo-hmac-auth'); ?></th>
                                     <th><?php echo esc_html__('Key ID', 'webo-hmac-auth'); ?></th>
                                     <th><?php echo esc_html__('Rate', 'webo-hmac-auth'); ?></th>
                                     <th><?php echo esc_html__('Status', 'webo-hmac-auth'); ?></th>
@@ -250,6 +258,7 @@ class AdminUi {
                             <tbody id="webo_keys_tbody_<?php echo esc_attr((string) $user->ID); ?>">
                                 <?php foreach ($clients as $client) : ?>
                                     <tr>
+                                        <td><?php echo esc_html((string) ($client['key_name'] ?? '-')); ?></td>
                                         <td><code><?php echo esc_html($client['key_id']); ?></code></td>
                                         <td><?php echo esc_html((string) $client['rate_limit']); ?></td>
                                         <td><?php echo esc_html((string) $client['status']); ?></td>
@@ -335,6 +344,7 @@ class AdminUi {
                             table.id = tableId;
                             table.className = 'widefat striped';
                             table.innerHTML = '<thead><tr>' +
+                                '<th><?php echo esc_js(__('Key Name', 'webo-hmac-auth')); ?></th>' +
                                 '<th><?php echo esc_js(__('Key ID', 'webo-hmac-auth')); ?></th>' +
                                 '<th><?php echo esc_js(__('Rate', 'webo-hmac-auth')); ?></th>' +
                                 '<th><?php echo esc_js(__('Status', 'webo-hmac-auth')); ?></th>' +
@@ -353,13 +363,15 @@ class AdminUi {
                             }
 
                             const keyId = data && data.key_id ? data.key_id : '';
+                            const keyName = data && data.key_name ? data.key_name : '-';
                             const rateInput = document.getElementById('webo_rate_limit_' + uid);
                             const rate = data && data.rate_limit ? data.rate_limit : (rateInput ? rateInput.value : '60');
                             const status = data && data.status ? data.status : 'active';
                             const lastUsed = data && data.last_used_at ? data.last_used_at : '-';
 
                             const row = document.createElement('tr');
-                            row.innerHTML = '<td><code>' + escapeHtml(keyId) + '</code></td>' +
+                            row.innerHTML = '<td>' + escapeHtml(keyName) + '</td>' +
+                                '<td><code>' + escapeHtml(keyId) + '</code></td>' +
                                 '<td>' + escapeHtml(rate) + '</td>' +
                                 '<td>' + escapeHtml(status) + '</td>' +
                                 '<td>' + escapeHtml(lastUsed) + '</td>' +
@@ -404,12 +416,14 @@ class AdminUi {
                                 payload.append('_ajax_nonce', ajaxNonce);
 
                                 const wpUserInput = createForm.querySelector('input[name="wp_user_id"]');
+                                const keyNameInput = createForm.querySelector('input[name="key_name"]');
                                 const allowedSitesInput = createForm.querySelector('input[name="allowed_sites"]');
                                 const allowlistInput = createForm.querySelector('textarea[name="allowlist"]');
                                 const denylistInput = createForm.querySelector('textarea[name="denylist"]');
                                 const rateLimitInput = createForm.querySelector('input[name="rate_limit"]');
 
                                 payload.append('wp_user_id', wpUserInput ? wpUserInput.value : uid);
+                                payload.append('key_name', keyNameInput ? keyNameInput.value : '');
                                 payload.append('allowed_sites', allowedSitesInput ? allowedSitesInput.value : '');
                                 payload.append('allowlist', allowlistInput ? allowlistInput.value : '');
                                 payload.append('denylist', denylistInput ? denylistInput.value : '');

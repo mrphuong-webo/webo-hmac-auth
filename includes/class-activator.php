@@ -25,6 +25,7 @@ class Activator {
             key_id VARCHAR(64) NOT NULL,
             secret_hash VARCHAR(255) NOT NULL,
             wp_user_id BIGINT UNSIGNED NOT NULL,
+            key_name VARCHAR(191) NULL,
             allowed_sites LONGTEXT NULL,
             allowlist LONGTEXT NULL,
             denylist LONGTEXT NULL,
@@ -40,6 +41,6 @@ class Activator {
         dbDelta($sql);
 
         // Store schema version for future migrations.
-        update_site_option('webo_hmac_auth_db_version', '1.0.0');
+        update_site_option('webo_hmac_auth_db_version', '1.1.0');
     }
 }
