@@ -30,7 +30,6 @@ require_once WEBO_HMAC_AUTH_PATH . 'includes/class-scope-checker.php';
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-key-manager.php';
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-auth-middleware.php';
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-admin-ui.php';
-require_once WEBO_HMAC_AUTH_PATH . 'includes/class-portal-connect-ui.php';
 
 register_activation_hook(WEBO_HMAC_AUTH_FILE, ['WeboHmacAuth\\Activator', 'activate']);
 
@@ -46,9 +45,6 @@ add_action('plugins_loaded', function() {
 
     $admin_ui = new WeboHmacAuth\AdminUi($key_manager);
     $admin_ui->register();
-
-    $portal_connect_ui = new WeboHmacAuth\PortalConnectUi($key_manager);
-    $portal_connect_ui->register();
 });
 
 add_filter('webo_hmac_auth_current_client', function($client) {

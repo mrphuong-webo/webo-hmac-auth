@@ -28,6 +28,7 @@ class AdminUi {
         add_action('network_admin_edit_webo_hmac_create_key', [$this, 'handle_create_key']);
         add_action('network_admin_edit_webo_hmac_revoke_key', [$this, 'handle_revoke_key']);
         add_action('network_admin_edit_webo_hmac_rotate_key', [$this, 'handle_rotate_key']);
+        add_action('wp_ajax_webo_hmac_create_key_ajax', [$this, 'handle_create_key_ajax']);
         add_action('edit_user_profile', [$this, 'render_network_user_edit_section']);
     }
 
@@ -62,6 +63,40 @@ class AdminUi {
 
         $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
         $this->redirect_with_message('API key created. Secret is shown once.', false, true, $redirect_to);
+    }
+
+    /**
+     * Handle create key submission via AJAX for user-edit screen.
+     */
+    public function handle_create_key_ajax() {
+        if (!current_user_can('manage_network_options')) {
+            wp_send_json_error([
+                'message' => __('You are not allowed to do this.', 'webo-hmac-auth'),
+            ], 403);
+        }
+
+        check_ajax_referer('webo_hmac_create_key');
+
+        $payload = [
+            'wp_user_id'    => isset($_POST['wp_user_id']) ? wp_unslash($_POST['wp_user_id']) : '',
+            'allowed_sites' => isset($_POST['allowed_sites']) ? wp_unslash($_POST['allowed_sites']) : '',
+            'allowlist'     => isset($_POST['allowlist']) ? wp_unslash($_POST['allowlist']) : '',
+            'denylist'      => isset($_POST['denylist']) ? wp_unslash($_POST['denylist']) : '',
+            'rate_limit'    => isset($_POST['rate_limit']) ? wp_unslash($_POST['rate_limit']) : '60',
+        ];
+
+        $result = $this->key_manager->create_client($payload);
+        if (is_wp_error($result)) {
+            wp_send_json_error([
+                'message' => $result->get_error_message(),
+            ], 400);
+        }
+
+        wp_send_json_success([
+            'message' => __('API key created. Secret is shown once.', 'webo-hmac-auth'),
+            'key_id'  => $result['key_id'],
+            'secret'  => $result['secret'],
+        ]);
     }
 
     /**
@@ -144,7 +179,8 @@ class AdminUi {
             <tr>
                 <th scope="row"><?php echo esc_html__('Create new key for this user', 'webo-hmac-auth'); ?></th>
                 <td>
-                    <form method="post" action="<?php echo esc_url(network_admin_url('edit.php?action=webo_hmac_create_key')); ?>">
+                    <form id="webo_create_key_form_<?php echo esc_attr((string) $user->ID); ?>" method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
+                        <input type="hidden" name="action" value="webo_hmac_create_key_ajax" />
                         <?php wp_nonce_field('webo_hmac_create_key'); ?>
                         <input type="hidden" name="wp_user_id" value="<?php echo esc_attr((string) $user->ID); ?>" />
                         <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
@@ -187,8 +223,9 @@ class AdminUi {
                             <input id="webo_rate_limit_<?php echo esc_attr((string) $user->ID); ?>" name="rate_limit" type="number" min="1" step="1" value="60" />
                         </p>
                         <p>
-                            <button type="submit" class="button button-primary"><?php echo esc_html__('Create Key', 'webo-hmac-auth'); ?></button>
+                            <button id="webo_create_key_button_<?php echo esc_attr((string) $user->ID); ?>" type="button" class="button button-primary"><?php echo esc_html__('Create Key', 'webo-hmac-auth'); ?></button>
                         </p>
+                        <div id="webo_create_key_notice_<?php echo esc_attr((string) $user->ID); ?>"></div>
                     </form>
                 </td>
             </tr>
@@ -248,6 +285,9 @@ class AdminUi {
                         const allowInput = document.getElementById('webo_allowlist_' + uid);
                         const denyPicker = document.getElementById('webo_denylist_picker_' + uid);
                         const denyInput = document.getElementById('webo_denylist_' + uid);
+                        const createForm = document.getElementById('webo_create_key_form_' + uid);
+                        const createButton = document.getElementById('webo_create_key_button_' + uid);
+                        const createNotice = document.getElementById('webo_create_key_notice_' + uid);
 
                         function selectedValues(selectEl) {
                             return Array.from(selectEl.selectedOptions).map(function (opt) { return opt.value; });
@@ -270,6 +310,48 @@ class AdminUi {
                             denyPicker.addEventListener('change', function () {
                                 const values = selectedValues(denyPicker);
                                 denyInput.value = values.length ? JSON.stringify(values) : '';
+                            });
+                        }
+
+                        if (createForm && createButton) {
+                            createButton.addEventListener('click', function () {
+                                createButton.disabled = true;
+
+                                fetch(createForm.action, {
+                                    method: 'POST',
+                                    credentials: 'same-origin',
+                                    body: new FormData(createForm)
+                                })
+                                    .then(function (response) {
+                                        return response.json();
+                                    })
+                                    .then(function (payload) {
+                                        if (!createNotice) {
+                                            return;
+                                        }
+
+                                        if (payload && payload.success && payload.data) {
+                                            const keyId = payload.data.key_id || '';
+                                            const secret = payload.data.secret || '';
+                                            const message = payload.data.message || 'API key created.';
+
+                                            createNotice.innerHTML = '<div class="notice notice-success inline"><p><strong>' + message + '</strong><br>' +
+                                                'Key ID: <code>' + keyId + '</code><br>' +
+                                                'Secret: <code>' + secret + '</code><br>' +
+                                                '<?php echo esc_js(__('Copy now. Secret cannot be retrieved later.', 'webo-hmac-auth')); ?></p></div>';
+                                        } else {
+                                            const errMsg = payload && payload.data && payload.data.message ? payload.data.message : '<?php echo esc_js(__('Failed to create key.', 'webo-hmac-auth')); ?>';
+                                            createNotice.innerHTML = '<div class="notice notice-error inline"><p>' + errMsg + '</p></div>';
+                                        }
+                                    })
+                                    .catch(function () {
+                                        if (createNotice) {
+                                            createNotice.innerHTML = '<div class="notice notice-error inline"><p><?php echo esc_js(__('Request failed. Please try again.', 'webo-hmac-auth')); ?></p></div>';
+                                        }
+                                    })
+                                    .finally(function () {
+                                        createButton.disabled = false;
+                                    });
                             });
                         }
                     })();
