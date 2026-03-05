@@ -31,6 +31,7 @@ class Activator {
             denylist LONGTEXT NULL,
             rate_limit INT NOT NULL DEFAULT 60,
             status VARCHAR(20) NOT NULL DEFAULT 'active',
+            revoked_at DATETIME NULL,
             last_used_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY  (id),

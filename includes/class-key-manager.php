@@ -11,6 +11,8 @@ if (!defined('ABSPATH')) {
 class KeyManager {
     /** @var bool */
     private $key_name_column_checked = false;
+    /** @var bool */
+    private $revoked_at_column_checked = false;
 
     /**
      * Return multisite-wide API clients table name.
@@ -165,11 +167,16 @@ class KeyManager {
     public function revoke_client($id) {
         global $wpdb;
 
+        $this->ensure_revoked_at_column();
+
         $updated = $wpdb->update(
             $this->get_table_name(),
-            ['status' => 'revoked'],
+            [
+                'status' => 'revoked',
+                'revoked_at' => current_time('mysql'),
+            ],
             ['id' => (int) $id],
-            ['%s'],
+            ['%s', '%s'],
             ['%d']
         );
 
@@ -442,6 +449,34 @@ class KeyManager {
     }
 
     /**
+     * Ensure revoked_at column exists for retention cleanup.
+     */
+    private function ensure_revoked_at_column() {
+        global $wpdb;
+
+        if ($this->revoked_at_column_checked) {
+            return;
+        }
+
+        $this->revoked_at_column_checked = true;
+
+        $table = $this->get_table_name();
+        $column = $wpdb->get_var(
+            $wpdb->prepare(
+                "SHOW COLUMNS FROM {$table} LIKE %s",
+                'revoked_at'
+            )
+        );
+
+        if (null !== $column) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $wpdb->query("ALTER TABLE {$table} ADD COLUMN revoked_at DATETIME NULL AFTER status");
+    }
+
+    /**
      * Set key status by key id.
      *
      * @param string $key_id Key ID.
@@ -452,21 +487,100 @@ class KeyManager {
     public function set_client_status_by_key_id($key_id, $status) {
         global $wpdb;
 
+        $this->ensure_revoked_at_column();
+
         $key_id = sanitize_text_field((string) $key_id);
         $status = sanitize_key((string) $status);
         if ('' === $key_id || !in_array($status, ['pending', 'active', 'revoked'], true)) {
             return false;
         }
 
+        $update_data = ['status' => $status];
+        $update_format = ['%s'];
+
+        if ('revoked' === $status) {
+            $update_data['revoked_at'] = current_time('mysql');
+            $update_format[] = '%s';
+        } else {
+            $update_data['revoked_at'] = null;
+            $update_format[] = '%s';
+        }
+
         $updated = $wpdb->update(
             $this->get_table_name(),
-            ['status' => $status],
+            $update_data,
             ['key_id' => $key_id],
-            ['%s'],
+            $update_format,
             ['%s']
         );
 
         return false !== $updated;
+    }
+
+    /**
+     * Delete revoked keys older than retention period.
+     *
+     * @param int $days Retention days.
+     *
+     * @return int Number of deleted keys.
+     */
+    public function cleanup_revoked_clients($days = 30) {
+        global $wpdb;
+
+        $this->ensure_revoked_at_column();
+
+        $days = max(1, (int) $days);
+        $cutoff = gmdate('Y-m-d H:i:s', time() - (DAY_IN_SECONDS * $days));
+        $table = $this->get_table_name();
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT key_id FROM {$table}
+                WHERE status = %s
+                  AND (
+                    (revoked_at IS NOT NULL AND revoked_at <= %s)
+                    OR (revoked_at IS NULL AND created_at <= %s)
+                  )",
+                'revoked',
+                $cutoff,
+                $cutoff
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($rows) || empty($rows)) {
+            return 0;
+        }
+
+        $deleted_count = 0;
+        $store = get_site_option('webo_hmac_auth_secret_store', []);
+        if (!is_array($store)) {
+            $store = [];
+        }
+
+        foreach ($rows as $row) {
+            $key_id = isset($row['key_id']) ? sanitize_text_field((string) $row['key_id']) : '';
+            if ('' === $key_id) {
+                continue;
+            }
+
+            $deleted = $wpdb->delete(
+                $table,
+                ['key_id' => $key_id],
+                ['%s']
+            );
+
+            if (false !== $deleted) {
+                $deleted_count += (int) $deleted;
+                if (isset($store[$key_id])) {
+                    unset($store[$key_id]);
+                }
+            }
+        }
+
+        update_site_option('webo_hmac_auth_secret_store', $store);
+
+        return $deleted_count;
     }
 
     /**

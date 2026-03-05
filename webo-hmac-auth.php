@@ -32,9 +32,24 @@ require_once WEBO_HMAC_AUTH_PATH . 'includes/class-auth-middleware.php';
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-admin-ui.php';
 
 register_activation_hook(WEBO_HMAC_AUTH_FILE, ['WeboHmacAuth\\Activator', 'activate']);
+register_deactivation_hook(WEBO_HMAC_AUTH_FILE, function () {
+    $timestamp = wp_next_scheduled('webo_hmac_auth_cleanup_revoked_keys');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'webo_hmac_auth_cleanup_revoked_keys');
+    }
+});
 
 add_action('plugins_loaded', function() {
     $key_manager = new WeboHmacAuth\KeyManager();
+
+    if (!wp_next_scheduled('webo_hmac_auth_cleanup_revoked_keys')) {
+        wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'webo_hmac_auth_cleanup_revoked_keys');
+    }
+
+    add_action('webo_hmac_auth_cleanup_revoked_keys', function () use ($key_manager) {
+        $retention_days = (int) apply_filters('webo_hmac_auth_revoked_retention_days', 30);
+        $key_manager->cleanup_revoked_clients(max(1, $retention_days));
+    });
 
     $middleware = new WeboHmacAuth\AuthMiddleware(
         $key_manager,

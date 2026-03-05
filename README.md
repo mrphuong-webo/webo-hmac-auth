@@ -25,6 +25,7 @@ HMAC authentication layer for:
   - `X-WEBO-SIGN`
 - Secret is shown once at creation/rotation.
 - Plain secret is not stored in plaintext DB columns.
+- Revoked keys are auto-cleaned daily after 30 days (customizable via filter `webo_hmac_auth_revoked_retention_days`).
 
 ## Signature base string
 
