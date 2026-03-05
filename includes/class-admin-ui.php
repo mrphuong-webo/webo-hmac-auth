@@ -79,6 +79,8 @@ class AdminUi {
             : $this->key_manager->list_clients_by_user($current_user_id);
 
         $users = [];
+        $user_sites_map = [];
+        $scope_suggestions = $this->get_scope_suggestions();
         if ($is_network_manager) {
             $users = get_users([
                 'fields' => ['ID', 'user_login'],
@@ -86,6 +88,27 @@ class AdminUi {
                 'orderby' => 'user_login',
                 'order' => 'ASC',
             ]);
+
+            foreach ($users as $user) {
+                $blogs = get_blogs_of_user((int) $user->ID, true);
+                $sites = [];
+
+                if (is_array($blogs)) {
+                    foreach ($blogs as $blog_id => $blog) {
+                        $site_id = isset($blog->userblog_id) ? (int) $blog->userblog_id : (int) $blog_id;
+                        $site_name = isset($blog->blogname) && '' !== (string) $blog->blogname ? (string) $blog->blogname : 'Site #' . $site_id;
+                        $site_url = isset($blog->siteurl) ? (string) $blog->siteurl : '';
+
+                        $sites[] = [
+                            'id' => $site_id,
+                            'name' => $site_name,
+                            'url' => $site_url,
+                        ];
+                    }
+                }
+
+                $user_sites_map[(string) $user->ID] = $sites;
+            }
         }
 
         $secret_notice = get_site_transient($this->get_secret_notice_key());
@@ -134,22 +157,33 @@ class AdminUi {
                         <tr>
                             <th scope="row"><label for="allowed_sites"><?php echo esc_html__('Allowed Sites', 'webo-hmac-auth'); ?></label></th>
                             <td>
-                                <input id="allowed_sites" name="allowed_sites" type="text" class="regular-text" placeholder="1,2,5" />
-                                <p class="description"><?php echo esc_html__('Comma-separated blog IDs. Empty means all sites.', 'webo-hmac-auth'); ?></p>
+                                <select id="allowed_sites_picker" multiple size="6" style="min-width:420px;"></select>
+                                <input id="allowed_sites" name="allowed_sites" type="text" class="regular-text" readonly />
+                                <p class="description"><?php echo esc_html__('Select sites that mapped user can access. Empty means all sites.', 'webo-hmac-auth'); ?></p>
                             </td>
                         </tr>
                         <tr>
                             <th scope="row"><label for="allowlist"><?php echo esc_html__('Allowlist (JSON array)', 'webo-hmac-auth'); ?></label></th>
                             <td>
+                                <select id="allowlist_picker" multiple size="8" style="min-width:420px;">
+                                    <?php foreach ($scope_suggestions as $scope_item) : ?>
+                                        <option value="<?php echo esc_attr($scope_item); ?>"><?php echo esc_html($scope_item); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                                 <textarea id="allowlist" name="allowlist" rows="4" cols="60" placeholder='["webo/list-posts","webo-list-plugins"]'></textarea>
-                                <p class="description"><?php echo esc_html__('If set, only listed tools/abilities are allowed.', 'webo-hmac-auth'); ?></p>
+                                <p class="description"><?php echo esc_html__('Pick from list to auto-generate JSON. If set, only listed tools/abilities are allowed.', 'webo-hmac-auth'); ?></p>
                             </td>
                         </tr>
                         <tr>
                             <th scope="row"><label for="denylist"><?php echo esc_html__('Denylist (JSON array)', 'webo-hmac-auth'); ?></label></th>
                             <td>
+                                <select id="denylist_picker" multiple size="8" style="min-width:420px;">
+                                    <?php foreach ($scope_suggestions as $scope_item) : ?>
+                                        <option value="<?php echo esc_attr($scope_item); ?>"><?php echo esc_html($scope_item); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                                 <textarea id="denylist" name="denylist" rows="4" cols="60" placeholder='["webo/delete-post"]'></textarea>
-                                <p class="description"><?php echo esc_html__('Denied items always win over allowlist.', 'webo-hmac-auth'); ?></p>
+                                <p class="description"><?php echo esc_html__('Pick from list to auto-generate JSON. Denied items always win over allowlist.', 'webo-hmac-auth'); ?></p>
                             </td>
                         </tr>
                         <tr>
@@ -161,6 +195,66 @@ class AdminUi {
                     </table>
                     <?php submit_button(__('Create Key', 'webo-hmac-auth')); ?>
                 </form>
+
+                <script>
+                (function () {
+                    const userSitesMap = <?php echo wp_json_encode($user_sites_map); ?>;
+                    const userSelect = document.getElementById('wp_user_id');
+                    const sitePicker = document.getElementById('allowed_sites_picker');
+                    const siteInput = document.getElementById('allowed_sites');
+                    const allowPicker = document.getElementById('allowlist_picker');
+                    const allowInput = document.getElementById('allowlist');
+                    const denyPicker = document.getElementById('denylist_picker');
+                    const denyInput = document.getElementById('denylist');
+
+                    function selectedValues(selectEl) {
+                        return Array.from(selectEl.selectedOptions).map(function (opt) { return opt.value; });
+                    }
+
+                    function syncSitesInput() {
+                        siteInput.value = selectedValues(sitePicker).join(',');
+                    }
+
+                    function syncJsonInput(selectEl, textareaEl) {
+                        const values = selectedValues(selectEl);
+                        textareaEl.value = values.length ? JSON.stringify(values) : '';
+                    }
+
+                    function renderSites(userId) {
+                        const sites = userSitesMap[userId] || [];
+                        sitePicker.innerHTML = '';
+
+                        sites.forEach(function (site) {
+                            const option = document.createElement('option');
+                            option.value = String(site.id);
+                            option.textContent = site.name + ' (#' + site.id + ')' + (site.url ? ' - ' + site.url : '');
+                            sitePicker.appendChild(option);
+                        });
+
+                        syncSitesInput();
+                    }
+
+                    if (userSelect && sitePicker && siteInput) {
+                        userSelect.addEventListener('change', function () {
+                            renderSites(userSelect.value || '');
+                        });
+                        sitePicker.addEventListener('change', syncSitesInput);
+                        renderSites(userSelect.value || '');
+                    }
+
+                    if (allowPicker && allowInput) {
+                        allowPicker.addEventListener('change', function () {
+                            syncJsonInput(allowPicker, allowInput);
+                        });
+                    }
+
+                    if (denyPicker && denyInput) {
+                        denyPicker.addEventListener('change', function () {
+                            syncJsonInput(denyPicker, denyInput);
+                        });
+                    }
+                })();
+                </script>
 
                 <hr />
             <?php endif; ?>
@@ -350,6 +444,8 @@ class AdminUi {
         }
 
         $clients = $this->key_manager->list_clients_by_user((int) $user->ID);
+        $user_blogs = get_blogs_of_user((int) $user->ID, true);
+        $scope_suggestions = $this->get_scope_suggestions();
         $status_message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
         $status_type = isset($_GET['type']) ? sanitize_key(wp_unslash($_GET['type'])) : 'success';
         $redirect_to = network_admin_url('user-edit.php?user_id=' . (int) $user->ID);
@@ -373,14 +469,36 @@ class AdminUi {
                         <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
                         <p>
                             <label for="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Allowed Sites', 'webo-hmac-auth'); ?></label><br />
-                            <input id="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>" name="allowed_sites" type="text" class="regular-text" placeholder="1,2,5" />
+                            <select id="webo_allowed_sites_picker_<?php echo esc_attr((string) $user->ID); ?>" multiple size="6" style="min-width:420px;">
+                                <?php if (is_array($user_blogs)) : ?>
+                                    <?php foreach ($user_blogs as $blog_id => $blog) : ?>
+                                        <?php
+                                        $site_id = isset($blog->userblog_id) ? (int) $blog->userblog_id : (int) $blog_id;
+                                        $site_name = isset($blog->blogname) && '' !== (string) $blog->blogname ? (string) $blog->blogname : 'Site #' . $site_id;
+                                        $site_url = isset($blog->siteurl) ? (string) $blog->siteurl : '';
+                                        ?>
+                                        <option value="<?php echo esc_attr((string) $site_id); ?>"><?php echo esc_html($site_name . ' (#' . $site_id . ')' . ($site_url ? ' - ' . $site_url : '')); ?></option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                            <input id="webo_allowed_sites_<?php echo esc_attr((string) $user->ID); ?>" name="allowed_sites" type="text" class="regular-text" readonly />
                         </p>
                         <p>
                             <label for="webo_allowlist_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Allowlist (JSON array)', 'webo-hmac-auth'); ?></label><br />
+                            <select id="webo_allowlist_picker_<?php echo esc_attr((string) $user->ID); ?>" multiple size="8" style="min-width:420px;">
+                                <?php foreach ($scope_suggestions as $scope_item) : ?>
+                                    <option value="<?php echo esc_attr($scope_item); ?>"><?php echo esc_html($scope_item); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                             <textarea id="webo_allowlist_<?php echo esc_attr((string) $user->ID); ?>" name="allowlist" rows="3" cols="60" placeholder='["webo/list-posts"]'></textarea>
                         </p>
                         <p>
                             <label for="webo_denylist_<?php echo esc_attr((string) $user->ID); ?>"><?php echo esc_html__('Denylist (JSON array)', 'webo-hmac-auth'); ?></label><br />
+                            <select id="webo_denylist_picker_<?php echo esc_attr((string) $user->ID); ?>" multiple size="8" style="min-width:420px;">
+                                <?php foreach ($scope_suggestions as $scope_item) : ?>
+                                    <option value="<?php echo esc_attr($scope_item); ?>"><?php echo esc_html($scope_item); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                             <textarea id="webo_denylist_<?php echo esc_attr((string) $user->ID); ?>" name="denylist" rows="3" cols="60" placeholder='["webo/delete-post"]'></textarea>
                         </p>
                         <p>
@@ -439,10 +557,86 @@ class AdminUi {
                             </tbody>
                         </table>
                     <?php endif; ?>
+
+                    <script>
+                    (function () {
+                        const uid = '<?php echo esc_js((string) $user->ID); ?>';
+                        const sitePicker = document.getElementById('webo_allowed_sites_picker_' + uid);
+                        const siteInput = document.getElementById('webo_allowed_sites_' + uid);
+                        const allowPicker = document.getElementById('webo_allowlist_picker_' + uid);
+                        const allowInput = document.getElementById('webo_allowlist_' + uid);
+                        const denyPicker = document.getElementById('webo_denylist_picker_' + uid);
+                        const denyInput = document.getElementById('webo_denylist_' + uid);
+
+                        function selectedValues(selectEl) {
+                            return Array.from(selectEl.selectedOptions).map(function (opt) { return opt.value; });
+                        }
+
+                        if (sitePicker && siteInput) {
+                            sitePicker.addEventListener('change', function () {
+                                siteInput.value = selectedValues(sitePicker).join(',');
+                            });
+                        }
+
+                        if (allowPicker && allowInput) {
+                            allowPicker.addEventListener('change', function () {
+                                const values = selectedValues(allowPicker);
+                                allowInput.value = values.length ? JSON.stringify(values) : '';
+                            });
+                        }
+
+                        if (denyPicker && denyInput) {
+                            denyPicker.addEventListener('change', function () {
+                                const values = selectedValues(denyPicker);
+                                denyInput.value = values.length ? JSON.stringify(values) : '';
+                            });
+                        }
+                    })();
+                    </script>
                 </td>
             </tr>
         </table>
         <?php
+    }
+
+    /**
+     * Returns predefined scope suggestions for allowlist/denylist pickers.
+     *
+     * @return array<int, string>
+     */
+    private function get_scope_suggestions() {
+        $suggestions = [
+            'webo/get-site-info',
+            'webo/list-posts',
+            'webo/get-post',
+            'webo/create-post',
+            'webo/update-post',
+            'webo/delete-post',
+            'webo/list-users',
+            'webo/list-media',
+            'webo/list-comments',
+            'webo/list-terms',
+            'webo/list-active-plugins',
+            'webo/get-options',
+            'webo/update-options',
+            'webo-featured/create-featured',
+            'webo-featured/get-featured',
+            'webo-featured/update-featured',
+            'webo-featured/delete-featured',
+            'webo-featured/list-featured',
+            'post-order/get-list',
+            'post-order/set-order',
+            'post-order/get-tax-order',
+            'post-order/set-tax-order',
+            'post-order/update-item',
+            'post-order/reset',
+            'post-order/set-top-items',
+            'core/get-site-info',
+            'core/get-user-info',
+            'core/get-environment-info',
+        ];
+
+        return array_values(array_unique(array_filter(array_map('strval', $suggestions))));
     }
 
     /**
