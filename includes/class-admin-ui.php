@@ -182,9 +182,7 @@ class AdminUi {
             <tr>
                 <th scope="row"><?php echo esc_html__('Create new key for this user', 'webo-hmac-auth'); ?></th>
                 <td>
-                    <form id="webo_create_key_form_<?php echo esc_attr((string) $user->ID); ?>" method="post" action="<?php echo esc_url(admin_url('admin-ajax.php')); ?>">
-                        <input type="hidden" name="action" value="webo_hmac_create_key_ajax" />
-                        <?php wp_nonce_field('webo_hmac_create_key'); ?>
+                    <div id="webo_create_key_form_<?php echo esc_attr((string) $user->ID); ?>">
                         <input type="hidden" name="wp_user_id" value="<?php echo esc_attr((string) $user->ID); ?>" />
                         <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
                         <p>
@@ -229,7 +227,7 @@ class AdminUi {
                             <button id="webo_create_key_button_<?php echo esc_attr((string) $user->ID); ?>" type="button" class="button button-primary"><?php echo esc_html__('Create Key', 'webo-hmac-auth'); ?></button>
                         </p>
                         <div id="webo_create_key_notice_<?php echo esc_attr((string) $user->ID); ?>"></div>
-                    </form>
+                    </div>
                 </td>
             </tr>
             <tr>
@@ -293,6 +291,8 @@ class AdminUi {
                         const createForm = document.getElementById('webo_create_key_form_' + uid);
                         const createButton = document.getElementById('webo_create_key_button_' + uid);
                         const createNotice = document.getElementById('webo_create_key_notice_' + uid);
+                        const ajaxUrl = '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
+                        const ajaxNonce = '<?php echo esc_js(wp_create_nonce('webo_hmac_create_key')); ?>';
                         const keysContainer = document.getElementById('webo_keys_container_' + uid);
                         const tableId = 'webo_keys_table_' + uid;
                         const tbodyId = 'webo_keys_tbody_' + uid;
@@ -395,11 +395,30 @@ class AdminUi {
                         if (createForm && createButton) {
                             createButton.addEventListener('click', function () {
                                 createButton.disabled = true;
+                                if (createNotice) {
+                                    createNotice.innerHTML = '<div class="notice notice-info inline"><p><?php echo esc_js(__('Creating key...', 'webo-hmac-auth')); ?></p></div>';
+                                }
 
-                                fetch(createForm.action, {
+                                const payload = new FormData();
+                                payload.append('action', 'webo_hmac_create_key_ajax');
+                                payload.append('_ajax_nonce', ajaxNonce);
+
+                                const wpUserInput = createForm.querySelector('input[name="wp_user_id"]');
+                                const allowedSitesInput = createForm.querySelector('input[name="allowed_sites"]');
+                                const allowlistInput = createForm.querySelector('textarea[name="allowlist"]');
+                                const denylistInput = createForm.querySelector('textarea[name="denylist"]');
+                                const rateLimitInput = createForm.querySelector('input[name="rate_limit"]');
+
+                                payload.append('wp_user_id', wpUserInput ? wpUserInput.value : uid);
+                                payload.append('allowed_sites', allowedSitesInput ? allowedSitesInput.value : '');
+                                payload.append('allowlist', allowlistInput ? allowlistInput.value : '');
+                                payload.append('denylist', denylistInput ? denylistInput.value : '');
+                                payload.append('rate_limit', rateLimitInput ? rateLimitInput.value : '60');
+
+                                fetch(ajaxUrl, {
                                     method: 'POST',
                                     credentials: 'same-origin',
-                                    body: new FormData(createForm)
+                                    body: payload
                                 })
                                     .then(function (response) {
                                         return response.json();
