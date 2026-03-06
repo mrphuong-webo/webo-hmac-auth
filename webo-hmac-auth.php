@@ -8,7 +8,7 @@
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Requires Plugins: webo-wordpress-mcp
- * Network: true
+ * Network: false
  *
  * Network activation notes:
  * - Activate from Network Admin > Plugins.
