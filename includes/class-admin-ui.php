@@ -21,23 +21,23 @@ class AdminUi {
      * Register hooks for network user-edit key management.
      */
     public function register() {
-        if (!is_multisite()) {
-            return;
-        }
-
+        // Đăng ký các action cho cả multisite và single site
         add_action('network_admin_edit_webo_hmac_create_key', [$this, 'handle_create_key']);
         add_action('network_admin_edit_webo_hmac_revoke_key', [$this, 'handle_revoke_key']);
         add_action('network_admin_edit_webo_hmac_force_revoke_key', [$this, 'handle_force_revoke_key']);
         add_action('network_admin_edit_webo_hmac_rotate_key', [$this, 'handle_rotate_key']);
         add_action('wp_ajax_webo_hmac_create_key_ajax', [$this, 'handle_create_key_ajax']);
+        // Hiển thị giao diện trên trang chỉnh sửa user cho cả site đơn và child site
         add_action('edit_user_profile', [$this, 'render_network_user_edit_section']);
+        add_action('show_user_profile', [$this, 'render_network_user_edit_section']);
     }
 
     /**
      * Handle create key submission.
      */
     public function handle_create_key() {
-        if (!current_user_can('manage_network_options')) {
+        // Cho phép cả admin site đơn và network admin
+        if (!current_user_can('manage_network_options') && !current_user_can('manage_options')) {
             wp_die(esc_html__('You are not allowed to do this.', 'webo-hmac-auth'));
         }
 
@@ -55,7 +55,7 @@ class AdminUi {
         $result = $this->key_manager->create_client($payload);
 
         if (is_wp_error($result)) {
-            $this->redirect_with_message($result->get_error_message(), true);
+            $this->redirect_with_message($result->get_error_message(), true, is_network_admin(), isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '');
         }
 
         set_site_transient($this->get_secret_notice_key(), [
@@ -64,14 +64,16 @@ class AdminUi {
         ], 300);
 
         $redirect_to = isset($_POST['redirect_to']) ? wp_unslash($_POST['redirect_to']) : '';
-        $this->redirect_with_message('API key created. Secret is shown once.', false, true, $redirect_to);
+        $this->redirect_with_message('API key created. Secret is shown once.', false, is_network_admin(), $redirect_to);
     }
 
     /**
      * Handle create key submission via AJAX for user-edit screen.
      */
+
     public function handle_create_key_ajax() {
-        if (!current_user_can('manage_network_options')) {
+        // Cho phép cả admin site đơn và network admin
+        if (!current_user_can('manage_network_options') && !current_user_can('manage_options')) {
             wp_send_json_error([
                 'message' => __('You are not allowed to do this.', 'webo-hmac-auth'),
             ], 403);
@@ -177,11 +179,12 @@ class AdminUi {
      *
      * @param \WP_User $user Edited user object.
      */
+
     public function render_network_user_edit_section($user) {
-        if (!is_network_admin() || !current_user_can('manage_network_options')) {
+        // Hiển thị cho admin site đơn, child site và network admin
+        if (!current_user_can('manage_network_options') && !current_user_can('manage_options')) {
             return;
         }
-
         if (!($user instanceof \WP_User) || empty($user->ID)) {
             return;
         }
