@@ -144,6 +144,8 @@ class KeyManager {
             return new WP_Error('webo_insert_failed', 'Failed to create API client.');
         }
 
+        update_user_meta($wp_user_id, 'webo_hmac_key_id', $key_id);
+
         $this->store_encrypted_secret($key_id, $encrypted_secret);
 
         return [

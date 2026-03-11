@@ -85,15 +85,38 @@ add_filter('webo_hmac_auth_current_client', function($client) {
  */
 function webo_hmac_sign_request($method, $path, $raw_body = '', $key_id = null) {
     if ($key_id === null || $key_id === '') {
-        $user_id = get_current_user_id();
-        if (!$user_id) {
-            return null;
-        }
-        $key_id = get_user_meta($user_id, 'webo_hmac_key_id', true);
+        $key_id = webo_hmac_get_key_id_for_user(get_current_user_id());
     }
     if (empty($key_id) || !is_string($key_id)) {
         return null;
     }
     $key_manager = new \WeboHmacAuth\KeyManager();
     return $key_manager->sign_outbound_request($key_id, $method, $path, $raw_body);
+}
+
+/**
+ * Lấy key_id HMAC cho user (để ký request / authorKey). Ưu tiên user meta, không có thì lấy key active đầu tiên trong bảng.
+ *
+ * @param int|null $user_id User ID; null = user hiện tại.
+ * @return string Key ID hoặc rỗng nếu không có.
+ */
+function webo_hmac_get_key_id_for_user($user_id = null) {
+    if ($user_id === null) {
+        $user_id = get_current_user_id();
+    }
+    if (!$user_id) {
+        return '';
+    }
+    $key_id = get_user_meta($user_id, 'webo_hmac_key_id', true);
+    if (!empty($key_id) && is_string($key_id)) {
+        return $key_id;
+    }
+    $key_manager = new \WeboHmacAuth\KeyManager();
+    $clients = $key_manager->list_clients_by_user((int) $user_id);
+    foreach ($clients as $c) {
+        if (isset($c['status']) && $c['status'] === 'active' && !empty($c['key_id'])) {
+            return (string) $c['key_id'];
+        }
+    }
+    return '';
 }
