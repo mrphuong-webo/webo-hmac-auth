@@ -73,3 +73,27 @@ add_filter('webo_hmac_auth_current_client', function($client) {
 
     return null;
 });
+
+/**
+ * Ký request gửi đi (outbound HMAC). Plugin khác gọi khi cần gửi request có chữ ký WEBO HMAC.
+ *
+ * @param string      $method   HTTP method (GET, POST, ...).
+ * @param string      $path     URL path dùng trong base string (vd: /webhook/xxx/chat).
+ * @param string      $raw_body Raw body (POST); GET thì ''.
+ * @param string|null $key_id   Key ID; null thì lấy từ user meta webo_hmac_key_id của user hiện tại.
+ * @return array|null Headers ['X-WEBO-KEY' => ..., 'X-WEBO-TS' => ..., 'X-WEBO-SIGN' => ...] hoặc null.
+ */
+function webo_hmac_sign_request($method, $path, $raw_body = '', $key_id = null) {
+    if ($key_id === null || $key_id === '') {
+        $user_id = get_current_user_id();
+        if (!$user_id) {
+            return null;
+        }
+        $key_id = get_user_meta($user_id, 'webo_hmac_key_id', true);
+    }
+    if (empty($key_id) || !is_string($key_id)) {
+        return null;
+    }
+    $key_manager = new \WeboHmacAuth\KeyManager();
+    return $key_manager->sign_outbound_request($key_id, $method, $path, $raw_body);
+}

@@ -319,6 +319,36 @@ class KeyManager {
     }
 
     /**
+     * Sign an outbound request (e.g. từ WordPress gửi sang n8n). Dùng cho plugin client gọi HMAC.
+     *
+     * @param string $key_id   API key id (của user hiện tại hoặc truyền vào).
+     * @param string $method   HTTP method (GET, POST, ...).
+     * @param string $path     URL path dùng trong base string (vd: /webhook/xxx/chat).
+     * @param string $raw_body Raw body để hash (GET thì '').
+     *
+     * @return array|null Headers ['X-WEBO-KEY' => ..., 'X-WEBO-TS' => ..., 'X-WEBO-SIGN' => ...] hoặc null nếu không ký được.
+     */
+    public function sign_outbound_request($key_id, $method, $path, $raw_body = '') {
+        $key_id = is_string($key_id) ? trim($key_id) : '';
+        if ($key_id === '') {
+            return null;
+        }
+        $secret = $this->get_plain_secret_for_key($key_id);
+        if (!$secret) {
+            return null;
+        }
+        $ts = (string) time();
+        $body_hash = hash('sha256', (string) $raw_body);
+        $base_string = strtoupper((string) $method) . "\n" . (string) $path . "\n" . $ts . "\n" . $body_hash;
+        $sign = base64_encode(hash_hmac('sha256', $base_string, $secret, true));
+        return [
+            'X-WEBO-KEY' => $key_id,
+            'X-WEBO-TS'  => $ts,
+            'X-WEBO-SIGN'=> $sign,
+        ];
+    }
+
+    /**
      * Update last usage timestamp.
      *
      * @param string $key_id API key id.
