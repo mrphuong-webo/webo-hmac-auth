@@ -16,8 +16,8 @@
  * - Database table uses $wpdb->base_prefix for multisite-wide key storage.
  */
 
-if (!defined('ABSPATH')) {
-    exit;
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
 define('WEBO_HMAC_AUTH_VERSION', '1.0.0');

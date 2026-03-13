@@ -1,6 +1,0 @@
-#!/bin/sh
-# Push current branch to all remotes after every commit.
-branch=$(git rev-parse --abbrev-ref HEAD)
-for remote in $(git remote); do
-  git push "$remote" "$branch" 2>/dev/null || true
-done
