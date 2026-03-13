@@ -20,9 +20,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define('WEBO_HMAC_AUTH_VERSION', '1.0.0');
-define('WEBO_HMAC_AUTH_FILE', __FILE__);
-define('WEBO_HMAC_AUTH_PATH', plugin_dir_path(__FILE__));
+add_action(
+	'plugins_loaded',
+	'webo_hmac_auth_load_textdomain'
+);
+
+/**
+ * Load plugin textdomain.
+ *
+ * @return void
+ */
+function webo_hmac_auth_load_textdomain() {
+	load_plugin_textdomain(
+		'webo-hmac-auth',
+		false,
+		dirname( plugin_basename( __FILE__ ) ) . '/languages'
+	);
+}
+
+define( 'WEBO_HMAC_AUTH_VERSION', '1.0.0' );
+define( 'WEBO_HMAC_AUTH_FILE', __FILE__ );
+define( 'WEBO_HMAC_AUTH_PATH', plugin_dir_path( __FILE__ ) );
 
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-activator.php';
 require_once WEBO_HMAC_AUTH_PATH . 'includes/class-rate-limiter.php';
