@@ -5,7 +5,7 @@ HMAC authentication layer for:
 - `/wp-json/wp-abilities/*`
 
 ## Dependency
-- Plugin này hoạt động cùng `webo-wordpress-mcp` (core MCP gateway).
+- Plugin này hoạt động cùng **WEBO MCP** (thư mục plugin `webo-mcp`, core MCP gateway).
 
 ## Network activation (multisite)
 1. Upload plugin folder to `wp-content/plugins/webo-hmac-auth`.
