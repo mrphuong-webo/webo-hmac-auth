@@ -61,7 +61,17 @@ class AuthMiddleware {
         $timestamp = $this->get_header('X-WEBO-TS');
         $signature = $this->get_header('X-WEBO-SIGN');
 
-        if ('' === $key_id || '' === $timestamp || '' === $signature) {
+        $has_any_hmac = ('' !== $key_id || '' !== $timestamp || '' !== $signature);
+        $has_all_hmac = ('' !== $key_id && '' !== $timestamp && '' !== $signature);
+
+        // This filter runs at priority 20; WordPress Application Password runs at priority 100.
+        // If the client sends no HMAC headers, defer so Basic / Application Password can authenticate.
+        if (!$has_any_hmac) {
+            return $result;
+        }
+
+        // Partial HMAC headers: reject (do not fall through with ambiguous intent).
+        if (!$has_all_hmac) {
             return new WP_Error('webo_auth_failed', 'Unauthorized', ['status' => 401]);
         }
 
